@@ -3,11 +3,13 @@ name: Firmware build (ESP32 boards)
 on:
   push:
     paths:
+      - "firmware"
       - "firmware/**"
       - "scripts/list_esp32_envs.py"
       - ".github/workflows/firmware-build.yml"
   pull_request:
     paths:
+      - "firmware"
       - "firmware/**"
       - "scripts/list_esp32_envs.py"
       - ".github/workflows/firmware-build.yml"
