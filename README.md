@@ -47,10 +47,24 @@ alert rather than silently dropping these. See `CONTRIBUTING.md`.
   LoRa's ~237-byte payload. If a fragment set stalls partway for 10s, the
   bridge asks the original sender to resend (the sender keeps recently-sent
   chunks around for exactly this) before finally giving up at 30s.
-- **Visible drop alerts**: if a message still can't be relayed (LoRa
-  timeout, disconnected radio, unsupported BLE fragment, oversized
-  payload), the bridge posts a plain "⚠️ [Bridge] ..." notice to nearby
-  Bitchat phones rather than failing silently.
+- **Visible drop alerts, attributed to the actual message where possible**:
+  if part of someone's message is genuinely lost (BLE fragment loss,
+  oversized payload, radio disconnected), the bridge posts a plain
+  "⚠️ [Bridge] message from X is incomplete..." notice to nearby Bitchat
+  phones, naming the sender whenever the bridge actually knows who it was.
+  One exception: a LoRa-side reassembly that never completes can only be
+  attributed to the Meshtastic hop it arrived from, not the original
+  Bitchat sender — that identity is inside the part of the packet that
+  never arrived, so there's genuinely no way to know it yet.
+  Purely internal hiccups that don't end up affecting any real message
+  (e.g. a single lost LoRa fragment that a resend successfully recovers)
+  are not surfaced — only failures that actually affect a real conversation.
+- **No airtime/duty-cycle throttling, by design**: this bridge exists for
+  when normal connectivity is down and long-range Bitchat-over-LoRa is the
+  only option — the point is to be usable, not polite about spectrum
+  sharing. (Meshtastic's firmware still enforces whatever regulatory
+  dwell-time/duty-cycle rules apply to the configured region, e.g. EU868 —
+  that's outside the bridge's control either way.)
 
 ## Requirements
 

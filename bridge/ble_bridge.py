@@ -53,6 +53,7 @@ class BitchatBridge:
         self._failed_at: Dict[str, float] = {}
         self._seen = deque(maxlen=DEDUPE_SIZE)
         self._announce_relayed_at: Dict[bytes, float] = {}
+        self._nicknames: Dict[bytes, str] = {}  # sender_id -> last-known nickname, for alert attribution only
         self._fragments = BitchatFragmentAssembler()
         self._last_fragment_expire = time.monotonic()
         self._stopping = False
@@ -71,10 +72,10 @@ class BitchatBridge:
                 await asyncio.sleep(1.0)
 
             if time.monotonic() - self._last_fragment_expire > FRAGMENT_EXPIRE_INTERVAL_S:
-                dropped = self._fragments.expire()
+                dropped_senders = self._fragments.expire()
                 self._last_fragment_expire = time.monotonic()
-                if dropped:
-                    await self.alert(f"{dropped} message(s) couldn't be relayed (incomplete/timed out)")
+                for sender_id in dropped_senders:
+                    await self.alert(f"message from {self._display_name(sender_id)} is incomplete (part of it was lost)")
 
     def _maybe_connect(self, device: BLEDevice):
         addr = device.address
@@ -124,6 +125,9 @@ class BitchatBridge:
 
         return handler
 
+    def _display_name(self, sender_id: bytes) -> str:
+        return self._nicknames.get(sender_id, sender_id.hex()[-4:])
+
     async def _handle_packet(self, data: bytes):
         pkt = protocol.parse(data)
         if pkt is None:
@@ -133,6 +137,11 @@ class BitchatBridge:
         if dedupe_key in self._seen:
             return
         self._seen.append(dedupe_key)
+
+        if pkt.packet_type == protocol.PacketType.ANNOUNCE:
+            name = protocol.parse_announce_nickname(pkt.payload)
+            if name:
+                self._nicknames[pkt.sender_id] = name  # kept for alert attribution, not the relay decision
 
         if pkt.packet_type == protocol.PacketType.FRAGMENT:
             reassembled = self._fragments.add(pkt.sender_id, pkt.payload)
@@ -148,7 +157,7 @@ class BitchatBridge:
             return  # public broadcast chat — never relayed, by design
 
         if packet_type in protocol.UNSUPPORTED_TYPES:
-            await self.alert("a message couldn't be relayed (unsupported fragment type)")
+            await self.alert(f"message from {self._display_name(sender_id)} can't be relayed yet (unsupported fragment format)")
             return
 
         if packet_type not in protocol.RELAYED_TYPES:

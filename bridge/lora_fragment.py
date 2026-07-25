@@ -111,12 +111,12 @@ class LoRaFragmentAssembler:
                 due.append(key)
         return due
 
-    def expire(self) -> int:
+    def expire(self) -> List[Key]:
         now = time.monotonic()
         stale = [k for k, a in self._assemblies.items() if now - a.started_at > ASSEMBLY_TIMEOUT_S]
         for k in stale:
             del self._assemblies[k]
-        return len(stale)
+        return stale
 
 
 @dataclass

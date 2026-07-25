@@ -86,11 +86,13 @@ class BitchatFragmentAssembler:
         reassembled = b"".join(assembly.chunks[i] for i in range(assembly.total))
         return Reassembled(original_type=assembly.original_type, data=reassembled)
 
-    def expire(self) -> int:
+    def expire(self) -> list[bytes]:
         """Drop assemblies that have been incomplete for too long. Returns
-        how many were dropped, so the caller can decide whether to alert."""
+        the sender_id of each one dropped, so the caller can post a
+        message-specific "part of this is missing" notice attributed to
+        the actual sender, not just a generic count."""
         now = time.monotonic()
         stale = [k for k, a in self._assemblies.items() if now - a.started_at > ASSEMBLY_TIMEOUT_S]
         for k in stale:
             del self._assemblies[k]
-        return len(stale)
+        return [sender_id for sender_id, _fragment_id in stale]

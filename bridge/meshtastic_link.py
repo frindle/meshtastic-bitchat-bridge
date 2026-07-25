@@ -15,6 +15,7 @@ import meshtastic.serial_interface
 from meshtastic.protobuf import portnums_pb2
 from pubsub import pub
 
+from . import protocol
 from .lora_fragment import LoRaFragmentAssembler, SentMessageCache, encode, encode_resend_request, is_resend_request
 
 logger = logging.getLogger("bridge.meshtastic")
@@ -116,9 +117,12 @@ class MeshtasticLink:
                 logger.info("Stalled assembly from %s (msg %d) — requesting resend", from_node_id, msg_id)
                 self._send_raw(encode_resend_request(msg_id), destination_id=from_node_id)
 
-            dropped = self._assembler.expire()
-            if dropped and self.on_alert:
-                await self.on_alert(f"{dropped} message(s) from the mesh couldn't be relayed (LoRa loss/timeout)")
+            for from_node_id, _msg_id in self._assembler.expire():
+                if self.on_alert:
+                    # Can't attribute this to the actual Bitchat sender — their
+                    # identity is inside the part of the packet we never got.
+                    # The Meshtastic hop it came from is the best we can say.
+                    await self.on_alert(f"part of a message relayed from mesh node {from_node_id} is missing")
 
     def _on_receive(self, packet, interface):
         try:
@@ -148,12 +152,21 @@ class MeshtasticLink:
         except Exception:
             logger.debug("Failed to process LoRa packet", exc_info=True)
 
+    @staticmethod
+    def _sender_hint(raw: bytes) -> str:
+        """Best-effort attribution for an outbound-relay failure — we have
+        the full packet here, so unlike the receive-side timeout we *can*
+        say whose message this was."""
+        pkt = protocol.parse(raw)
+        return pkt.sender_id.hex()[-4:] if pkt else "unknown sender"
+
     def send_packet(self, raw: bytes):
         if self._interface is None:
             logger.debug("Meshtastic disconnected, dropping %d-byte packet", len(raw))
             if self.on_alert:
                 asyncio.run_coroutine_threadsafe(
-                    self.on_alert("a message couldn't be relayed (Meshtastic disconnected)"), self._loop
+                    self.on_alert(f"message from {self._sender_hint(raw)} couldn't be relayed (Meshtastic disconnected)"),
+                    self._loop,
                 )
             return
 
@@ -162,7 +175,8 @@ class MeshtasticLink:
             logger.warning("Packet too large to fragment for LoRa (%d bytes)", len(raw))
             if self.on_alert:
                 asyncio.run_coroutine_threadsafe(
-                    self.on_alert("a message couldn't be relayed (too large for LoRa)"), self._loop
+                    self.on_alert(f"message from {self._sender_hint(raw)} couldn't be relayed (too large for LoRa)"),
+                    self._loop,
                 )
             return
 
