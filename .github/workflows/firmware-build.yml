@@ -1,0 +1,45 @@
+name: Firmware build (ESP32 boards)
+
+on:
+  push:
+    paths:
+      - "firmware/**"
+      - "scripts/list_esp32_envs.py"
+      - ".github/workflows/firmware-build.yml"
+  pull_request:
+    paths:
+      - "firmware/**"
+      - "scripts/list_esp32_envs.py"
+      - ".github/workflows/firmware-build.yml"
+  workflow_dispatch:
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      envs: ${{ steps.list.outputs.envs }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - id: list
+        run: echo "envs=$(python3 scripts/list_esp32_envs.py firmware)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: ${{ fromJson(needs.discover.outputs.envs) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -U platformio
+      - name: Build ${{ matrix.env }}
+        working-directory: firmware
+        run: pio run -e ${{ matrix.env }}
