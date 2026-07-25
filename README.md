@@ -62,9 +62,12 @@ alert rather than silently dropping these. See `CONTRIBUTING.md`.
 - **No airtime/duty-cycle throttling, by design**: this bridge exists for
   when normal connectivity is down and long-range Bitchat-over-LoRa is the
   only option — the point is to be usable, not polite about spectrum
-  sharing. (Meshtastic's firmware still enforces whatever regulatory
-  dwell-time/duty-cycle rules apply to the configured region, e.g. EU868 —
-  that's outside the bridge's control either way.)
+  sharing. Meshtastic's firmware still enforces whatever regulatory
+  dwell-time/duty-cycle rules apply to the configured region (e.g. EU868)
+  — that's outside the bridge's control. See
+  [`docs/regulatory-duty-cycle.md`](docs/regulatory-duty-cycle.md) for what
+  that limit is and the (stock Meshtastic, not bridge-specific) config
+  field that exists for licensed operators with their own applicable rules.
 
 ## Requirements
 
