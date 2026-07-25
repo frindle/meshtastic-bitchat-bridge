@@ -1,4 +1,7 @@
-"""Bitchat binary wire protocol: packet build/parse, signing, padding.
+"""Bitchat binary wire protocol: header parsing + the bridge's own signed
+packets (ANNOUNCE to join the mesh, and status-alert MESSAGEs — the bridge
+never originates real chat content, only relays it and reports on relay
+failures).
 
 Format verified against the official Swift source (permissionlesstech/bitchat)
 and cross-checked against the Kotlin Android port. See ../docs/protocol-notes.md.
@@ -11,7 +14,6 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 
-import lz4.block
 import nacl.signing
 
 VERSION = 0x01
@@ -25,12 +27,26 @@ class PacketType:
     ANNOUNCE = 0x01
     MESSAGE = 0x02
     LEAVE = 0x03
+    NOISE_HANDSHAKE = 0x10
+    NOISE_ENCRYPTED = 0x11
+    FRAGMENT = 0x20
 
 
-class Flag:
-    HAS_RECIPIENT = 0x01
-    HAS_SIGNATURE = 0x02
-    IS_COMPRESSED = 0x04
+# Packets relayed across the LoRa hop as opaque bytes (never decrypted/rebuilt
+# — the content is already end-to-end encrypted between the real Bitchat
+# clients, or in ANNOUNCE's case, needs to reach the far side verbatim so
+# peers there can discover this side's public keys/nicknames and start a DM).
+RELAYED_TYPES = {PacketType.ANNOUNCE, PacketType.NOISE_HANDSHAKE, PacketType.NOISE_ENCRYPTED}
+
+# Public broadcast chat — the bridge intentionally does not relay this.
+SKIPPED_TYPES = {PacketType.MESSAGE, PacketType.LEAVE}
+
+# Bitchat's own BLE-level fragmentation. A relay can't tell a fragment's real
+# type without reassembling it first, which isn't implemented yet — so a
+# long DM/group message that gets fragmented at the BLE layer won't relay
+# correctly. Known v1 gap; the bridge alerts on it rather than silently
+# dropping.
+UNSUPPORTED_TYPES = {PacketType.FRAGMENT}
 
 
 def pad(data: bytes) -> bytes:
@@ -48,7 +64,9 @@ def pad(data: bytes) -> bytes:
 
 @dataclass
 class Identity:
-    """A bitchat peer identity: Ed25519 signing key + derived 8-byte sender ID."""
+    """The bridge's own Bitchat identity: Ed25519 signing key + derived
+    8-byte sender ID. Used only to join the mesh (ANNOUNCE) and to post its
+    own status alerts — never to originate or re-sign relayed chat content."""
 
     signing_key: nacl.signing.SigningKey = field(default_factory=nacl.signing.SigningKey.generate)
 
@@ -81,13 +99,23 @@ def _build_signed(identity: Identity, packet_type: int, payload: bytes, recipien
     return pad(final)
 
 
+class Flag:
+    HAS_RECIPIENT = 0x01
+    HAS_SIGNATURE = 0x02
+    IS_COMPRESSED = 0x04
+
+
 def build_announce(identity: Identity, nickname: str) -> bytes:
     name = nickname.encode("utf-8")[:255]
     payload = bytes([0x01, len(name)]) + name  # TLV tag 0x01 = nickname
     return _build_signed(identity, PacketType.ANNOUNCE, payload, recipient_id=BROADCAST_ID)
 
 
-def build_message(identity: Identity, text: str) -> bytes:
+def build_alert(identity: Identity, text: str) -> bytes:
+    """A visible status notice from the bridge itself (e.g. "message from X
+    couldn't be relayed") — a plain broadcast MESSAGE, since that's the only
+    channel the bridge has back to nearby phones without a Noise session of
+    its own. Not used for relaying anyone else's chat content."""
     return _build_signed(identity, PacketType.MESSAGE, text.encode("utf-8"), recipient_id=BROADCAST_ID)
 
 
@@ -104,6 +132,10 @@ class ParsedPacket:
 
 
 def parse(data: bytes) -> Optional[ParsedPacket]:
+    """Header-level parse only — never decrypts payloads. Compressed packets
+    are passed through with their payload still compressed; relaying doesn't
+    need to read the content, only ANNOUNCE parsing (nickname) does, and
+    ANNOUNCE payloads are never compressed in practice."""
     if len(data) < HEADER_SIZE:
         return None
 
@@ -111,7 +143,6 @@ def parse(data: bytes) -> Optional[ParsedPacket]:
     flags = data[11]
     payload_len = struct.unpack(">H", data[12:14])[0]
     has_recipient = bool(flags & Flag.HAS_RECIPIENT)
-    is_compressed = bool(flags & Flag.IS_COMPRESSED)
 
     offset = HEADER_SIZE
     sender_id = bytes(data[offset : offset + 8])
@@ -124,15 +155,9 @@ def parse(data: bytes) -> Optional[ParsedPacket]:
 
     if offset + payload_len > len(data):
         return None
-    raw_payload = bytes(data[offset : offset + payload_len])
+    payload = bytes(data[offset : offset + payload_len])
 
-    if is_compressed:
-        try:
-            raw_payload = lz4.block.decompress(raw_payload[2:], uncompressed_size=65536)
-        except Exception:
-            return None
-
-    return ParsedPacket(packet_type=packet_type, sender_id=sender_id, recipient_id=recipient_id, payload=raw_payload)
+    return ParsedPacket(packet_type=packet_type, sender_id=sender_id, recipient_id=recipient_id, payload=payload)
 
 
 def parse_announce_nickname(payload: bytes) -> Optional[str]:

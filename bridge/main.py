@@ -1,4 +1,8 @@
-"""Entry point: wires the Bitchat BLE side to the Meshtastic LoRa side."""
+"""Entry point: wires the Bitchat BLE side to the Meshtastic LoRa side.
+
+Relays 1:1 DMs, group messages, and Noise handshakes as raw bytes in both
+directions. Public broadcast chat is never relayed — see ble_bridge.py.
+"""
 from __future__ import annotations
 
 import argparse
@@ -17,8 +21,9 @@ async def run(meshtastic_port: str | None, meshtastic_ble: str | None, nickname:
     ble = BitchatBridge(nickname=nickname)
     mesh = MeshtasticLink(port=meshtastic_port, ble_address=meshtastic_ble)
 
-    ble.on_message = lambda name, text: mesh_send(mesh, name, text)
-    mesh.on_text = lambda name, text: ble.broadcast(f"[Mesh:{name}] {text}")
+    ble.on_relay_packet = lambda raw: asyncio.to_thread(mesh.send_packet, raw)
+    mesh.on_relay_packet = ble.replay
+    mesh.on_alert = ble.alert
 
     mesh.start(loop)
     scan_task = asyncio.create_task(ble.run())
@@ -33,10 +38,6 @@ async def run(meshtastic_port: str | None, meshtastic_ble: str | None, nickname:
     mesh.stop()
     await ble.stop()
     scan_task.cancel()
-
-
-async def mesh_send(mesh: MeshtasticLink, name: str, text: str):
-    mesh.send_text(f"[Bit:{name}] {text}")
 
 
 def main():
