@@ -2,4 +2,4 @@ bleak>=0.22
 meshtastic>=2.5
 pynacl>=1.5
 lz4>=4.3
-pypubsub>=4.0
+pypubsub>=4.0.7
