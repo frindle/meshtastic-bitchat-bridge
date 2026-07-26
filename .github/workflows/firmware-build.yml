@@ -14,6 +14,11 @@ on:
       - "scripts/list_esp32_envs.py"
       - ".github/workflows/firmware-build.yml"
   workflow_dispatch:
+    inputs:
+      full:
+        description: "Build all ~126 ESP32 board targets instead of the smoke-test subset"
+        type: boolean
+        default: false
 
 jobs:
   discover:
@@ -25,7 +30,15 @@ jobs:
         with:
           submodules: recursive
       - id: list
-        run: echo "envs=$(python3 scripts/list_esp32_envs.py firmware)" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ "${{ github.event.inputs.full }}" = "true" ]; then
+            echo "envs=$(python3 scripts/list_esp32_envs.py firmware)" >> "$GITHUB_OUTPUT"
+          else
+            # Smoke-test subset: one representative board per ESP32 chip
+            # family (esp32/esp32s3/esp32c3/esp32c6/esp32s2). Full 126-board
+            # sweep is available via workflow_dispatch with full=true.
+            echo 'envs=["heltec-v3","tbeam","heltec-ht62-esp32c3-sx1262","tlora_c6","nugget_s2_lora"]' >> "$GITHUB_OUTPUT"
+          fi
 
   build:
     needs: discover
