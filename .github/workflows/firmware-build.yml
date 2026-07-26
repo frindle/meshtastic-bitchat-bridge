@@ -1,4 +1,4 @@
-name: Firmware build (ESP32 boards)
+name: Firmware build
 
 on:
   push:
@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       full:
-        description: "Build all ~126 ESP32 board targets instead of the smoke-test subset"
+        description: "Build all ~215 board targets (every chip family) instead of the smoke-test subset"
         type: boolean
         default: false
 
@@ -32,12 +32,15 @@ jobs:
       - id: list
         run: |
           if [ "${{ github.event.inputs.full }}" = "true" ]; then
-            echo "envs=$(python3 scripts/list_esp32_envs.py firmware)" >> "$GITHUB_OUTPUT"
+            echo "envs=$(python3 scripts/list_esp32_envs.py firmware --all-platforms)" >> "$GITHUB_OUTPUT"
           else
-            # Smoke-test subset: one representative board per ESP32 chip
-            # family (esp32/esp32s3/esp32c3/esp32c6/esp32s2). Full 126-board
-            # sweep is available via workflow_dispatch with full=true.
-            echo 'envs=["heltec-v3","tbeam","heltec-ht62-esp32c3-sx1262","tlora_c6","nugget_s2_lora"]' >> "$GITHUB_OUTPUT"
+            # Smoke-test subset: one representative board per supported chip
+            # family (esp32/esp32s3/esp32c3/esp32c6/esp32s2, plus nRF52840 and
+            # RP2040/RP2350/STM32 stock-firmware coverage — our BitchatBridge
+            # module itself is ESP32-only for now, but the rest of the fork
+            # should still build cleanly on every platform Meshtastic supports).
+            # Full ~215-board sweep is available via workflow_dispatch with full=true.
+            echo 'envs=["heltec-v3","tbeam","heltec-ht62-esp32c3-sx1262","tlora_c6","nugget_s2_lora","rak4631","rp2040-lora","pico2","wio-e5"]' >> "$GITHUB_OUTPUT"
           fi
 
   build:
