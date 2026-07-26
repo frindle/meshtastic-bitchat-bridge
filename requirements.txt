@@ -1,4 +1,4 @@
-bleak>=0.22
+bleak>=3.0.2
 meshtastic>=2.5
 pynacl>=1.5
 lz4>=4.3
