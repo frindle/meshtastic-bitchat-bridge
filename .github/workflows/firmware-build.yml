@@ -81,6 +81,17 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: firmware-${{ matrix.env }}
-          path: firmware/.pio/build/${{ matrix.env }}/firmware.bin
-          if-no-files-found: ignore
+          # PlatformIO's post-build step renames the image to
+          # firmware-<board>-<version>.<hash>.<ext>, so a literal "firmware.bin"
+          # never matched and every run silently uploaded nothing. Extensions
+          # differ per platform: esp32 gives .bin (+ .factory.bin), nrf52840
+          # gives .hex/.uf2, rp2040/rp2350 give .bin/.uf2, stm32 gives .bin/.hex.
+          # .elf is deliberately left out -- debug symbols, tens of MB.
+          path: |
+            firmware/.pio/build/${{ matrix.env }}/firmware-*.bin
+            firmware/.pio/build/${{ matrix.env }}/firmware-*.hex
+            firmware/.pio/build/${{ matrix.env }}/firmware-*.uf2
+          # Fail loudly rather than "ignore": every board produces at least one
+          # of the three, so no match means the naming changed again.
+          if-no-files-found: error
           retention-days: 30
