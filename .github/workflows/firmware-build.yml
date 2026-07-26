@@ -5,18 +5,16 @@ on:
     paths:
       - "firmware"
       - "firmware/**"
-      - "scripts/list_esp32_envs.py"
       - ".github/workflows/firmware-build.yml"
   pull_request:
     paths:
       - "firmware"
       - "firmware/**"
-      - "scripts/list_esp32_envs.py"
       - ".github/workflows/firmware-build.yml"
   workflow_dispatch:
     inputs:
       full:
-        description: "Build all ~215 board targets (every chip family) instead of the smoke-test subset"
+        description: "Build every release board upstream ships, instead of one per chip family"
         type: boolean
         default: false
 
@@ -29,19 +27,36 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -U platformio
       - id: list
+        working-directory: firmware
+        # Board names are never hardcoded here. Upstream Meshtastic already
+        # maintains the authoritative list *and* its tiering (board_level unset
+        # = release, "pr" = smoke-tested on every upstream PR, "extra" =
+        # community boards upstream does not build and which are routinely
+        # broken for reasons unrelated to this fork). generate_ci_matrix.py
+        # resolves it through PlatformIO's own config parser, so `extends` is
+        # honoured and renamed/added/removed boards track the submodule
+        # automatically. A hand-maintained list here drifted out of sync on
+        # every submodule bump and caused several red runs.
         run: |
-          if [ "${{ github.event.inputs.full }}" = "true" ]; then
-            echo "envs=$(python3 scripts/list_esp32_envs.py firmware --all-platforms)" >> "$GITHUB_OUTPUT"
+          if [ "${{ inputs.full }}" = "true" ]; then
+            matrix=$(python3 bin/generate_ci_matrix.py all)
           else
-            # Smoke-test subset: one representative board per supported chip
-            # family (esp32/esp32s3/esp32c3/esp32c6/esp32s2, plus nRF52840 and
-            # RP2040/RP2350/STM32 stock-firmware coverage — our BitchatBridge
-            # module itself is ESP32-only for now, but the rest of the fork
-            # should still build cleanly on every platform Meshtastic supports).
-            # Full ~215-board sweep is available via workflow_dispatch with full=true.
-            echo 'envs=["heltec-v3","tbeam","heltec-ht62-esp32c3-sx1262","tlora-c6","nugget-s2-lora","rak4631","rp2040-lora","pico2","wio-e5"]' >> "$GITHUB_OUTPUT"
+            # One representative board per chip family, taken from upstream's
+            # own PR tier so it is always a board upstream itself keeps green.
+            # sort_by makes the pick deterministic rather than dependent on
+            # ini-file ordering. Keeps the default push build to ~8 jobs while
+            # still covering esp32/s3/c3/c6 + nrf52840 + rp2040/rp2350 + stm32.
+            # The PR tier contains no ESP32-S2 board: the only S2 variant in the
+            # tree is board_level=extra and fails upstream in the core's USB-CDC
+            # header, nothing to do with this bridge.
+            matrix=$(python3 bin/generate_ci_matrix.py all --level pr)
           fi
+          echo "envs=$(echo "$matrix" | jq -c 'group_by(.platform) | map(sort_by(.board)[0].board)')" >> "$GITHUB_OUTPUT"
 
   build:
     needs: discover
