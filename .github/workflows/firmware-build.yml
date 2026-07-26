@@ -40,7 +40,7 @@ jobs:
             # module itself is ESP32-only for now, but the rest of the fork
             # should still build cleanly on every platform Meshtastic supports).
             # Full ~215-board sweep is available via workflow_dispatch with full=true.
-            echo 'envs=["heltec-v3","tbeam","heltec-ht62-esp32c3-sx1262","tlora_c6","nugget_s2_lora","rak4631","rp2040-lora","pico2","wio-e5"]' >> "$GITHUB_OUTPUT"
+            echo 'envs=["heltec-v3","tbeam","heltec-ht62-esp32c3-sx1262","tlora-c6","nugget-s2-lora","rak4631","rp2040-lora","pico2","wio-e5"]' >> "$GITHUB_OUTPUT"
           fi
 
   build:
